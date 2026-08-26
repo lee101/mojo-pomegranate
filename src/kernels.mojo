@@ -5,14 +5,12 @@ addresses as Int because an exported function with an inferred pointer origin
 would be parametric.
 """
 
-from std.algorithm import sync_parallelize
 from std.math import exp, log
 from std.sys.info import simd_width_of as simdwidthof
 
 comptime FPtr = UnsafePointer[Float64, AnyOrigin[mut=True]]
 comptime IPtr = UnsafePointer[Int64, AnyOrigin[mut=True]]
 comptime W = simdwidthof[DType.float64]()
-comptime PARALLEL_MIN_WORK = 32768
 
 
 def fp(addr: Int) -> FPtr:
@@ -260,11 +258,8 @@ def mp_hmm_forward(
                     total += exp(alpha[prev + src] + edges[src * k + dst] - largest)
                 alpha[base + t * k + dst] = emissions[base + t * k + dst] + largest + log(total)
 
-    if batch * length * k * k >= PARALLEL_MIN_WORK:
-        sync_parallelize[compute_sequence](batch)
-    else:
-        for b in range(batch):
-            compute_sequence(b)
+    for b in range(batch):
+        compute_sequence(b)
 
 
 @export("mp_hmm_backward")
@@ -314,11 +309,8 @@ def mp_hmm_backward(
                     dst += 1
                 beta[base + t * k + src] = largest + log(total)
 
-    if batch * length * k * k >= PARALLEL_MIN_WORK:
-        sync_parallelize[compute_sequence](batch)
-    else:
-        for b in range(batch):
-            compute_sequence(b)
+    for b in range(batch):
+        compute_sequence(b)
 
 
 @export("mp_hmm_finish")
@@ -399,11 +391,8 @@ def mp_hmm_finish(
                     )
                     dst += 1
 
-    if batch * length * k * k >= PARALLEL_MIN_WORK:
-        sync_parallelize[finish_sequence](batch)
-    else:
-        for b in range(batch):
-            finish_sequence(b)
+    for b in range(batch):
+        finish_sequence(b)
 
 
 @export("mp_hmm_viterbi")
