@@ -93,22 +93,32 @@ jobs do not overlap these measurements.
 
 | case | mojo-pomegranate | pomegranate | result |
 | --- | ---: | ---: | ---: |
-| Normal.log_probability (1M x 8) | 14.1 ms | 89.8 ms | 6.36x faster |
-| GMM.predict_proba k=4 (300k x 8) | 50.1 ms | 153.2 ms | 3.06x faster |
-| GMM.fit k=3, 8 EM steps (100k x 6) | 150.6 ms | 457.0 ms | 3.03x faster |
-| DenseHMM.forward k=6 (1k x 300) | 42.1 ms | 239.4 ms | 5.69x faster |
-| DenseHMM.predict_proba k=4 (500 x 300) | 99.8 ms | 239.4 ms | 2.40x faster |
-| BayesianNetwork.log_probability (50k x 8) | 4.7 ms | 9172.4 ms | 1949.03x faster |
+| Normal.log_probability (1M x 8) | 14.5 ms | 63.6 ms | 4.39x faster |
+| GMM.predict_proba k=4 (300k x 8) | 28.6 ms | 45.5 ms | 1.59x faster |
+| GMM.predict_proba GPU k=4 (300k x 8) | 18.5 ms | 43.5 ms | 2.35x faster |
+| GMM.fit k=3, 8 EM steps (100k x 6) | 115.9 ms | 126.5 ms | 1.09x faster |
+| DenseHMM.forward k=6 (1k x 300) | 28.7 ms | 37.9 ms | 1.32x faster |
+| DenseHMM.predict_proba k=4 (500 x 300) | 53.7 ms | 75.0 ms | 1.40x faster |
+| BayesianNetwork.log_probability (50k x 8) | 4.5 ms | 8127.8 ms | 1817.60x faster |
 
-Large independent HMM sequences use thresholded CPU parallelism; small calls
-stay serial to avoid launch overhead. Contiguous HMM reductions and mixture
-normalization use the host SIMD width with scalar remainder loops. Mixture
-posterior output is updated in place, and `predict_proba` writes probabilities
-directly instead of allocating a second array for a NumPy exponentiation.
+Large independent HMM sequences and mixture-normalization rows use thresholded
+CPU parallelism; small calls stay serial to avoid launch overhead. HMM forward,
+contiguous HMM reductions, mixture normalization, and weighted Normal statistics
+use the host SIMD width with scalar remainder loops. Statistics keep the first
+SIMD accumulator block in registers across rows. Mixture posterior output is
+updated in place, and `predict_proba` writes probabilities directly instead of
+allocating a second array for a NumPy exponentiation.
 
-No GPU path is included. These kernels are streaming likelihood,
-small-state reduction, or recurrence workloads, and the HMM time-axis
-recurrence limits useful parallelism. CPU is the only device path.
+GMM normalization has an optional GPU path through
+`predict_proba(X, device="gpu")`; the same device argument is accepted by the
+other normalized GMM inference methods and `fit`. CPU remains the default. The
+GPU wrapper checks that at least 4000 MiB is free, caps each call below 2 GiB,
+and silently runs the CPU kernel if a context or allocation is unavailable.
+The GPU benchmark above used about 12 MiB on an RTX 5090 and includes host-device
+copies and synchronization. `pixi run bench` omits this row and reports the skip
+when less than 4000 MiB is free. HMM recurrence and the streaming emission and
+statistics kernels remain CPU-only because transfer and recurrence costs do not
+justify GPU offload.
 
 The Bayesian-network result is large because pomegranate 1.0.0 indexes each
 conditional distribution in a Python loop over rows, while Mojo evaluates the

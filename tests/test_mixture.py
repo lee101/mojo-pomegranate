@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import mojopomegranate.gmm as gmm_module
 
 from pomegranate.distributions import Categorical as UpCategorical
 from pomegranate.distributions import Normal as UpNormal
@@ -7,6 +8,7 @@ from pomegranate.gmm import GeneralMixtureModel as UpGMM
 
 from mojopomegranate.distributions import Categorical, Normal
 from mojopomegranate.gmm import GeneralMixtureModel
+from mojopomegranate._lib import addr, lib
 
 
 def numpy(value):
@@ -101,6 +103,66 @@ def test_gaussian_mixture_em_parity():
     assert np.allclose(
         ours.log_probability(X), numpy(upstream.log_probability(X)), atol=5e-4
     )
+
+
+@pytest.mark.parametrize("n", [7, 10_001])
+def test_weighted_stats_simd_tail(n):
+    rng = np.random.default_rng(12)
+    d, k = 5, 3
+    X = rng.normal(size=(n, d))
+    log_weights = np.log(rng.dirichlet(np.ones(k), size=n))
+    counts = np.empty(k)
+    sums = np.empty((k, d))
+    sumsq = np.empty((k, d))
+    lib().mp_weighted_stats(
+        addr(X), addr(log_weights), addr(counts), addr(sums), addr(sumsq), n, d, k
+    )
+    weights = np.exp(log_weights)
+    assert np.allclose(counts, weights.sum(axis=0), rtol=1e-11, atol=2e-9)
+    assert np.allclose(sums, weights.T @ X, rtol=1e-11, atol=2e-9)
+    assert np.allclose(sumsq, weights.T @ (X * X), rtol=1e-11, atol=2e-9)
+
+
+@pytest.mark.parametrize("n", [7, 100_001])
+@pytest.mark.parametrize(
+    "symbol", ["mp_mixture_posteriors", "mp_mixture_probabilities"]
+)
+def test_mixture_normalization_simd_tail_and_parallel_threshold(n, symbol):
+    emissions = np.random.default_rng(13).normal(size=(n, 5))
+    result = emissions.copy()
+    logps = np.empty(n)
+    getattr(lib(), symbol)(addr(emissions), addr(result), addr(logps), n, 5)
+    largest = emissions.max(axis=1)
+    expected_logps = largest + np.log(
+        np.exp(emissions - largest[:, None]).sum(axis=1)
+    )
+    expected = emissions - expected_logps[:, None]
+    if symbol == "mp_mixture_probabilities":
+        expected = np.exp(expected)
+    assert np.allclose(logps, expected_logps, atol=2e-12)
+    assert np.allclose(result, expected, atol=2e-12)
+
+
+def test_mixture_gpu_or_cpu_fallback_and_device_validation(monkeypatch):
+    X = np.random.default_rng(14).normal(size=(4096, 2))
+    model, _ = gaussian_models()
+    expected = model.predict_proba(X)
+    assert np.allclose(model.predict_proba(X, device="gpu"), expected, atol=2e-12)
+
+    real_lib = lib()
+
+    class UnavailableGPU:
+        def __getattr__(self, name):
+            return getattr(real_lib, name)
+
+        @staticmethod
+        def mp_mixture_gpu(*args):
+            return 0
+
+    monkeypatch.setattr(gmm_module, "lib", lambda: UnavailableGPU())
+    assert np.allclose(model.predict_proba(X, device="gpu"), expected, atol=2e-12)
+    with pytest.raises(ValueError, match="device"):
+        model.predict_proba(X, device="accelerator")
 
 
 def test_mixture_sampling_and_boundary_validation():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import platform
+import subprocess
 import sys
 import time
 
@@ -52,6 +53,27 @@ def processor():
 CASES = []
 
 
+def gpu_free_mib():
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=memory.free",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=5,
+        )
+        return int(result.stdout.splitlines()[0].strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return 0
+
+
+GPU_FREE_MIB = gpu_free_mib()
+
+
 def case(name):
     def register(function):
         CASES.append((name, function))
@@ -84,6 +106,26 @@ def mixture_predict():
         [UpNormal(means[i], covs[i], covariance_type="diag") for i in range(4)]
     )
     return lambda: ours.predict_proba(X), lambda: upstream.predict_proba(X)
+
+
+if GPU_FREE_MIB >= 4000:
+
+    @case("GMM.predict_proba GPU k=4 (300k x 8)")
+    def mixture_predict_gpu():
+        rng = np.random.default_rng(1)
+        X = rng.normal(size=(300_000, 8))
+        means = rng.normal(size=(4, 8))
+        covs = rng.uniform(0.5, 2, size=(4, 8))
+        ours = GeneralMixtureModel(
+            [Normal(means[i], covs[i], covariance_type="diag") for i in range(4)]
+        )
+        upstream = UpGMM(
+            [UpNormal(means[i], covs[i], covariance_type="diag") for i in range(4)]
+        )
+        return (
+            lambda: ours.predict_proba(X, device="gpu"),
+            lambda: upstream.predict_proba(X),
+        )
 
 
 @case("GMM.fit k=3, 8 EM steps (100k x 6)")
@@ -203,6 +245,8 @@ def main():
             f"| {name} | {ours_time * 1e3:.1f} ms | "
             f"{upstream_time * 1e3:.1f} ms | {result} |"
         )
+    if GPU_FREE_MIB < 4000:
+        print(f"\nGPU benchmark skipped: {GPU_FREE_MIB} MiB free; 4000 MiB required.")
 
 
 if __name__ == "__main__":

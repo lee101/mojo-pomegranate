@@ -22,6 +22,7 @@ _SIGNATURES = {
     "mp_categorical_emissions": ([I] * 7, None),
     "mp_mixture_posteriors": ([I] * 5, None),
     "mp_mixture_probabilities": ([I] * 5, None),
+    "mp_mixture_gpu": ([I] * 5, I),
     "mp_weighted_stats": ([I] * 8, None),
     "mp_weighted_categorical_stats": ([I] * 7, None),
     "mp_hmm_forward": ([I] * 7, None),

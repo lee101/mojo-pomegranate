@@ -99,9 +99,15 @@ class GeneralMixtureModel:
             result += np.log(observation_priors)
         return np.ascontiguousarray(result)
 
-    def _posteriors(self, X, priors=None, probability=False):
+    def _posteriors(self, X, priors=None, probability=False, device="cpu"):
+        if device not in ("cpu", "gpu"):
+            raise ValueError("device must be 'cpu' or 'gpu'")
         emissions = self._emission_matrix(X, priors)
         logps = np.empty(len(emissions))
+        if device == "gpu" and lib().mp_mixture_gpu(
+            addr(emissions), addr(logps), len(emissions), self.k, int(probability)
+        ):
+            return emissions, logps
         function = (
             lib().mp_mixture_probabilities
             if probability
@@ -110,22 +116,22 @@ class GeneralMixtureModel:
         function(addr(emissions), addr(emissions), addr(logps), len(emissions), self.k)
         return emissions, logps
 
-    def log_probability(self, X, priors=None):
-        return self._posteriors(X, priors)[1]
+    def log_probability(self, X, priors=None, device="cpu"):
+        return self._posteriors(X, priors, device=device)[1]
 
-    def probability(self, X, priors=None):
-        return np.exp(self.log_probability(X, priors))
+    def probability(self, X, priors=None, device="cpu"):
+        return np.exp(self.log_probability(X, priors, device=device))
 
-    def predict_log_proba(self, X, priors=None):
-        return self._posteriors(X, priors)[0]
+    def predict_log_proba(self, X, priors=None, device="cpu"):
+        return self._posteriors(X, priors, device=device)[0]
 
-    def predict_proba(self, X, priors=None):
-        return self._posteriors(X, priors, probability=True)[0]
+    def predict_proba(self, X, priors=None, device="cpu"):
+        return self._posteriors(X, priors, probability=True, device=device)[0]
 
     def predict(self, X, priors=None):
         return np.argmax(self._emission_matrix(X, priors), axis=1)
 
-    def fit(self, X, sample_weight=None, priors=None):
+    def fit(self, X, sample_weight=None, priors=None, device="cpu"):
         X = f64(X)
         if sample_weight is not None:
             raise NotImplementedError("weighted GeneralMixtureModel.fit is not covered")
@@ -141,7 +147,7 @@ class GeneralMixtureModel:
         sums = np.empty((self.k, X.shape[1]))
         sumsq = np.empty_like(sums)
         for iteration in range(self.max_iter):
-            log_post, logps = self._posteriors(X, priors)
+            log_post, logps = self._posteriors(X, priors, device=device)
             total = float(logps.sum())
             if iteration and total - previous < self.tol:
                 break

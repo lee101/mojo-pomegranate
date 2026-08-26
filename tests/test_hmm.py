@@ -66,7 +66,7 @@ def test_forward_backward_parity(categorical_models, sequences):
         assert np.allclose(ours_value, numpy(upstream_value), atol=3e-6)
 
 
-@pytest.mark.parametrize("batch", [2, 128])
+@pytest.mark.parametrize("batch", [2, 256])
 def test_hmm_parallel_threshold_and_simd_tail(batch):
     rng = np.random.default_rng(11)
     k, length = 5, 32
@@ -109,6 +109,21 @@ def test_hmm_parallel_threshold_and_simd_tail(batch):
     _, post, _, _, actual_logps = model.forward_backward(emissions=emissions)
     assert np.allclose(actual_logps, logps, atol=2e-12)
     assert np.allclose(post, expected + beta - logps[:, None, None], atol=5e-9)
+
+
+def test_hmm_forward_simd_unreachable_states():
+    k = 5
+    model = DenseHMM(
+        [Categorical([[0.5, 0.5]]) for _ in range(k)],
+        edges=np.eye(k),
+        starts=[1.0, 0.0, 0.0, 0.0, 0.0],
+        ends=np.full(k, 0.1),
+    )
+    emissions = np.zeros((3, 7, k))
+    result = model.forward(emissions=emissions)
+    assert not np.isnan(result).any()
+    assert np.all(result[:, :, 0] == 0.0)
+    assert np.all(np.isneginf(result[:, :, 1:]))
 
 
 def test_inference_api_parity(categorical_models, sequences):
