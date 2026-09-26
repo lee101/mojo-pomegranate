@@ -7,7 +7,7 @@ would be parametric.
 
 from max.algorithm import parallelize
 from max.gpu.host import DeviceContext
-from std.gpu import global_idx
+from max.gpu import global_idx
 from std.math import exp, log
 from std.sys.info import simd_width_of as simdwidthof
 
