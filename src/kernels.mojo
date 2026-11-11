@@ -58,8 +58,8 @@ def mp_normal_emissions(
             var acc = SIMD[DType.float64, W](0.0)
             var j = 0
             while j + W <= d:
-                var diff = x.load[width=W](r * d + j) - means.load[width=W](c * d + j)
-                acc += diff * diff * invvars.load[width=W](c * d + j)
+                var diff = x.unsafe_load[width=W](r * d + j) - means.unsafe_load[width=W](c * d + j)
+                acc += diff * diff * invvars.unsafe_load[width=W](c * d + j)
                 j += W
             var total = acc.reduce_add()
             while j < d:
@@ -116,7 +116,7 @@ def mp_mixture_posteriors(
         if k >= W:
             var acc = SIMD[DType.float64, W](0.0)
             while c + W <= k:
-                acc += exp(emissions.load[width=W](r * k + c) - largest)
+                acc += exp(emissions.unsafe_load[width=W](r * k + c) - largest)
                 c += W
             total = acc.reduce_add()
         while c < k:
@@ -126,7 +126,7 @@ def mp_mixture_posteriors(
         logps[r] = logp
         c = 0
         while c + W <= k:
-            post.store(r * k + c, emissions.load[width=W](r * k + c) - logp)
+            post.store(r * k + c, emissions.unsafe_load[width=W](r * k + c) - logp)
             c += W
         while c < k:
             post[r * k + c] = emissions[r * k + c] - logp
@@ -161,7 +161,7 @@ def mp_mixture_probabilities(
         if k >= W:
             var acc = SIMD[DType.float64, W](0.0)
             while c + W <= k:
-                acc += exp(emissions.load[width=W](r * k + c) - largest)
+                acc += exp(emissions.unsafe_load[width=W](r * k + c) - largest)
                 c += W
             total = acc.reduce_add()
         while c < k:
@@ -173,7 +173,7 @@ def mp_mixture_probabilities(
         while c + W <= k:
             probabilities.store(
                 r * k + c,
-                exp(emissions.load[width=W](r * k + c) - logp),
+                exp(emissions.unsafe_load[width=W](r * k + c) - logp),
             )
             c += W
         while c < k:
@@ -286,14 +286,14 @@ def mp_weighted_stats(
             counts[c] += weight
             j = 0
             if d >= W:
-                var values = x.load[width=W](r * d + j)
+                var values = x.unsafe_load[width=W](r * d + j)
                 sum_vec += weight * values
                 sumsq_vec += weight * values * values
                 j += W
             while j + W <= d:
-                var values = x.load[width=W](r * d + j)
-                sums.store(c * d + j, sums.load[width=W](c * d + j) + weight * values)
-                sumsq.store(c * d + j, sumsq.load[width=W](c * d + j) + weight * values * values)
+                var values = x.unsafe_load[width=W](r * d + j)
+                sums.store(c * d + j, sums.unsafe_load[width=W](c * d + j) + weight * values)
+                sumsq.store(c * d + j, sumsq.unsafe_load[width=W](c * d + j) + weight * values * values)
                 j += W
             while j < d:
                 var value = x[r * d + j]
@@ -355,11 +355,11 @@ def mp_hmm_forward(
             var current = base + t * k
             var dst = 0
             while dst + W <= k:
-                var largest_vec = alpha[prev] + edges.load[width=W](dst)
+                var largest_vec = alpha[prev] + edges.unsafe_load[width=W](dst)
                 for src in range(1, k):
                     largest_vec = max(
                         largest_vec,
-                        alpha[prev + src] + edges.load[width=W](src * k + dst),
+                        alpha[prev + src] + edges.unsafe_load[width=W](src * k + dst),
                     )
                 var unreachable = largest_vec.lt(-1.0e300)
                 var stable_largest = unreachable.select(
@@ -369,10 +369,10 @@ def mp_hmm_forward(
                 for src in range(k):
                     total_vec += exp(
                         alpha[prev + src] +
-                        edges.load[width=W](src * k + dst) - stable_largest
+                        edges.unsafe_load[width=W](src * k + dst) - stable_largest
                     )
                 var result_vec = (
-                    emissions.load[width=W](current + dst) +
+                    emissions.unsafe_load[width=W](current + dst) +
                     stable_largest + log(total_vec)
                 )
                 alpha.store(
@@ -438,9 +438,9 @@ def mp_hmm_backward(
                 var dst = 0
                 while dst + W <= k:
                     acc += exp(
-                        edges.load[width=W](src * k + dst) +
-                        emissions.load[width=W](nxt + dst) +
-                        beta.load[width=W](nxt + dst) - largest
+                        edges.unsafe_load[width=W](src * k + dst) +
+                        emissions.unsafe_load[width=W](nxt + dst) +
+                        beta.unsafe_load[width=W](nxt + dst) - largest
                     )
                     dst += W
                 var total = acc.reduce_add()
@@ -500,8 +500,8 @@ def mp_hmm_finish(
             while c + W <= k:
                 post.store(
                     base + t * k + c,
-                    alpha.load[width=W](base + t * k + c) +
-                    beta.load[width=W](base + t * k + c) - logp,
+                    alpha.unsafe_load[width=W](base + t * k + c) +
+                    beta.unsafe_load[width=W](base + t * k + c) - logp,
                 )
                 c += W
             while c < k:
@@ -518,11 +518,11 @@ def mp_hmm_finish(
                     var index = b * k * k + src * k + dst
                     transitions.store(
                         index,
-                        transitions.load[width=W](index) + exp(
+                        transitions.unsafe_load[width=W](index) + exp(
                             alpha[current + src] +
-                            edges.load[width=W](src * k + dst) +
-                            emissions.load[width=W](nxt + dst) +
-                            beta.load[width=W](nxt + dst) - logp
+                            edges.unsafe_load[width=W](src * k + dst) +
+                            emissions.unsafe_load[width=W](nxt + dst) +
+                            beta.unsafe_load[width=W](nxt + dst) - logp
                         ),
                     )
                     dst += W
